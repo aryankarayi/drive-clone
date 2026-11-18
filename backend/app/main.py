@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, UploadFile
 from schemas.folder import FolderCreate, FolderResponse, FolderUpdate
 from schemas.file import FileCreate, FileResponse
 from uuid import UUID, uuid4
+import storage
 
 app = FastAPI()
 
@@ -60,30 +61,26 @@ def update_folder(folder_id: UUID, update: FolderUpdate):
 
 # File related endpoints
 
-@app.get('/folders/{folder_id}/files/{file_id}', response_model=FileResponse)
-def read_file(folder_id: UUID, file_id: UUID):
-    if folder_id not in folders:
-        raise HTTPException(status_code=404, detail='Folder not found')
+@app.get('/files/{file_id}', response_model=FileResponse)
+def read_file(file_id: UUID):
     if file_id not in files:
-        raise HTTPException(status_code=404, detail='File not found')
-    if folder_id != files[file_id].parent_id:
         raise HTTPException(status_code=404, detail='File not found')
     return files[file_id]
 
-@app.post('/folders/{folder_id}/files', response_model=FileResponse)
-def create_file(folder_id: UUID, file: UploadFile):
-    if folder_id not in folders:
+# Create file
+@app.post('/files', response_model=FileResponse)
+def create_file(file: UploadFile, parent_id: UUID | None = None):
+    if parent_id != None and parent_id not in folders:
         raise HTTPException(status_code=404, detail='Folder not found')
-    response = FileResponse(name= file.filename, id=uuid4(), parent_id=folder_id)
+    response = FileResponse(name=file.filename, id=uuid4(), parent_id=parent_id)
+    storage.save_file(response.id, file.file)
+
     files[response.id] = response
     return response
-    
-@app.delete('/folders/{folder_id}/files/{file_id}')
-def delete_file(folder_id: UUID, file_id: UUID):
-    if folder_id not in folders:
-        raise HTTPException(status_code=404, detail='Folder not found')
+
+@app.delete('/files/{file_id}')
+def delete_file(file_id: UUID):
     if file_id not in files:
         raise HTTPException(status_code=404, detail='File not found')
-    if folder_id != files[file_id].parent_id:
-        raise HTTPException(status_code=404, detail='File not found')
+    storage.delete_file(file_id)
     del files[file_id]
