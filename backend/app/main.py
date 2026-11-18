@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile
 from schemas.folder import FolderCreate, FolderResponse, FolderUpdate
 from schemas.file import FileCreate, FileResponse
 from uuid import UUID, uuid4
@@ -15,6 +15,17 @@ def health_check():
 
 # Folder related endpoints
 
+@app.get('/folders', response_model=list[FolderResponse])
+def list_folders(parent_id: UUID | None = None):
+    if parent_id is not None and parent_id not in folders:
+        raise HTTPException(status_code=404, detail='Parent folder not found')
+    folder_list = []
+    for folder in folders.values():
+        if folder.parent_id == parent_id:
+            folder_list.append(folder)
+    return folder_list
+
+
 @app.get('/folders/{folder_id}', response_model=FolderResponse)
 def read_folder(folder_id: UUID):
     if folder_id not in folders:
@@ -23,7 +34,11 @@ def read_folder(folder_id: UUID):
 
 @app.post('/folders', response_model=FolderResponse)
 def create_folder(folder: FolderCreate):
-    response = FolderResponse(id=uuid4(), name=folder.name)
+    if folder.parent_id:
+        if folder.parent_id not in folders:
+            raise HTTPException(status_code=404, detail='Folder not found')
+        
+    response = FolderResponse(id=uuid4(), name=folder.name, parent_id=folder.parent_id)
     folders[response.id] = response
     return response
 
@@ -56,13 +71,13 @@ def read_file(folder_id: UUID, file_id: UUID):
     return files[file_id]
 
 @app.post('/folders/{folder_id}/files', response_model=FileResponse)
-def create_file(folder_id: UUID, file: FileCreate):
+def create_file(folder_id: UUID, file: UploadFile):
     if folder_id not in folders:
         raise HTTPException(status_code=404, detail='Folder not found')
-    response = FileResponse(id=uuid4(), name=file.name, parent_id=folder_id)
+    response = FileResponse(name= file.filename, id=uuid4(), parent_id=folder_id)
     files[response.id] = response
     return response
-
+    
 @app.delete('/folders/{folder_id}/files/{file_id}')
 def delete_file(folder_id: UUID, file_id: UUID):
     if folder_id not in folders:
