@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from schemas.folder import FolderCreate, FolderResponse, FolderUpdate
-from schemas.file import FileCreate, FileResponse
+from schemas.file import FileRead
 from uuid import UUID, uuid4
 import storage
 
@@ -8,7 +9,7 @@ app = FastAPI()
 
 folders: dict[UUID, FolderResponse] = {}
 
-files: dict[UUID, FileResponse] = {}
+files: dict[UUID, FileRead] = {}
 
 @app.get('/health')
 def health_check():
@@ -60,19 +61,22 @@ def update_folder(folder_id: UUID, update: FolderUpdate):
     return updated_folder
 
 # File related endpoints
-
-@app.get('/files/{file_id}', response_model=FileResponse)
+'''
+@app.get('/files/{file_id}', response_model=FileRead)
 def read_file(file_id: UUID):
     if file_id not in files:
         raise HTTPException(status_code=404, detail='File not found')
     return files[file_id]
+'''
 
 # Create file
-@app.post('/files', response_model=FileResponse)
+@app.post('/files', response_model=FileRead)
 def create_file(file: UploadFile, parent_id: UUID | None = None):
-    if parent_id != None and parent_id not in folders:
+    if parent_id is not None and parent_id not in folders:
         raise HTTPException(status_code=404, detail='Folder not found')
-    response = FileResponse(name=file.filename, id=uuid4(), parent_id=parent_id)
+    if file.filename is None:
+        raise HTTPException(status_code=400, detail='File must have a name')
+    response = FileRead(name=file.filename, id=uuid4(), parent_id=parent_id)
     storage.save_file(response.id, file.file)
 
     files[response.id] = response
@@ -84,3 +88,27 @@ def delete_file(file_id: UUID):
         raise HTTPException(status_code=404, detail='File not found')
     storage.delete_file(file_id)
     del files[file_id]
+
+@app.get('/files/{file_id}/download', response_class=FileResponse)
+def download_file(file_id: UUID):
+    if file_id not in files:
+        raise HTTPException(status_code=404, detail='File not found')
+    path = storage.get_file_path(file_id)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail='File data missing')
+
+    file_metadata = files[file_id]
+
+    response = FileResponse(path=path, filename=file_metadata.name)
+
+    return response
+
+@app.get('/files/')
+def get_files_in_folder(parent_id: UUID | None = None):
+    if parent_id is not None and parent_id not in folders:
+        raise HTTPException(status_code=404, detail='Folder not found')
+    files_in_folder = []
+    for file in files.values():
+        if file.parent_id == parent_id:
+            files_in_folder.append(file)
+    return files_in_folder
